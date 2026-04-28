@@ -118,389 +118,211 @@ Use:
 
 Big wall-mounted display.
 Purpose:
-
-
-mirror tablet UI
-
-
-show live form overlay
-
-
-make it look premium / visible across gym
-
+- mirror tablet UI
+- show live form overlay
+- make it look premium / visible across gym
 
 This is mostly for sales/demo value.
-Tablet is enough for v1. TV is upsell.
+___Tablet is enough for v1. TV is upsell.___
 
-5. Compute hub (important)
+<br/>
+
+## 5. Compute hub (important)
 This is the brains.
 This should not be the tablet.
 The tablet is UI only.
 The hub does:
+- camera ingest
+- inference
+- local networking
+- sync to cloud
+- device management
+- updates
 
+**This is the right architecture.**
 
-camera ingest
+Do NOT make tablet do inference.
 
-
-inference
-
-
-local networking
-
-
-sync to cloud
-
-
-device management
-
-
-updates
-
-
-This is the right architecture.
-
-Do NOT make tablet do inference
 This is the big architecture call.
+
 Do not rely on Android tablet for core inference.
 Why:
-
-
-Android hardware fragmentation sucks
-
-
-camera handling is annoying
-
-
-thermals suck
-
-
-kiosk management gets harder
-
-
-replacing tablet becomes painful
-
+- Android hardware fragmentation sucks
+- camera handling is annoying
+- thermals suck
+- kiosk management gets harder
+- replacing tablet becomes painful
 
 Instead:
-
-
-tablet = UI terminal
-
-
-hub = compute
-
-
-cameras → hub
-
-
-tablet ↔ hub over local network
-
+- tablet = UI terminal
+- hub = compute
+- cameras → hub
+- tablet ↔ hub over local network
 
 That’s the right system.
 
 Best v1 architecture
+
 Option A (best): mini PC hub
+
 Use a cheap mini PC / N100 box.
+
 Examples:
-
-
-Beelink
-
-
-Intel N100 mini PC
-
-
-used Dell OptiPlex Micro
-
-
-fanless industrial mini PC later
-
+- Beelink
+- Intel N100 mini PC
+- used Dell OptiPlex Micro
+- fanless industrial mini PC later
 
 This is probably your best v1.
 Why:
 
-
-cheap
-
-
-powerful enough for pose estimation
-
-
-runs Linux
-
-
-easy remote management
-
-
-easy USB camera support
-
-
-easy OTA updates
-
-
-no weird Pi bottlenecks
-
+- cheap
+- powerful enough for pose estimation
+- runs Linux
+- easy remote management
+- easy USB camera support
+- easy OTA updates
+- no weird Pi bottlenecks
 
 This is likely the correct answer.
+
 Hub runs:
-
-
-Linux
-
-
-your inference service
-
-
-local API server
-
-
-websocket server
-
-
-cloud sync agent
-
+- Linux
+- your inference service
+- local API server
+- websocket server
+- cloud sync agent
 
 This is clean.
 
-Option B: Raspberry Pi
-Possible, but probably wrong long-term.
-Pi is nice for prototyping, but:
+<br/>
 
+## Software architecture
 
-weaker inference
-
-
-USB bandwidth can get annoying
-
-
-thermal throttling
-
-
-SD cards die
-
-
-supply chain still annoying
-
-
-debugging in the field is worse
-
-
-Pi is fine for prototype.
-Mini PC is better for deployment.
-Use Pi only to prove it works.
-
-Software architecture
 On-device (hub)
+
 Runs locally in gym.
+
 Services:
 1. Vision service
-
-
-ingests 2 cameras
-
-
-runs pose estimation
-
-
-computes joint landmarks
-
-
-tracks reps
-
-
-scores movement
-
+- ingests 2 cameras
+- runs pose estimation
+- computes joint landmarks
+- tracks reps
+- scores movement
 
 This outputs structured events, not raw video.
 Example:
-
-
-rep_started
-
-
-rep_ended
-
-
-depth=0.91
-
-
-knee_valgus_left=0.22
-
-
-torso_pitch=18deg
-
-
-cue="Drive knees out"
-
+- rep_started
+- rep_ended
+- depth=0.91
+- knee_valgus_left=0.22
+- torso_pitch=18deg
+- cue="Drive knees out"
 
 That’s the product.
+
 Not “AI video.”
+
 The product is movement events + coaching cues.
 
 2. Session engine
-Handles workout logic.
-
-
-selected exercise
-
-
-set / rep state machine
-
-
-rest timers
-
-
-cue timing
-
-
-exercise-specific rules
-
+- Handles workout logic.
+- selected exercise
+- set / rep state machine
+- rest timers
+- cue timing
+- exercise-specific rules
 
 This matters a lot.
-You’re not just doing pose detection.
-You’re building a lift interpreter.
 
-3. Local UI server
+We’re not just doing pose detection.
+
+**We’re building a lift interpreter.**
+
+<br/>
+
+## 3. Local UI server
 Serves tablet UI over LAN.
 Tablet runs:
-
-
-your Android app
+- your Android app
 or
-
-
-kiosk browser to local web app
-
+- kiosk browser to local web app
 
 This means tablet is replaceable and dumb.
 Very good for ops.
 
 4. Cloud sync
 Uploads:
-
-
-analytics
-
-
-anonymized movement metrics
-
-
-gym usage
-
-
-device health
-
-
-software updates
-
+- analytics
+- anonymized movement metrics
+- gym usage
+- device health
+- software updates
 
 Do not stream raw video by default.
 Too expensive, too creepy.
 Upload metrics + short clips only when flagged.
 
-Android tablet: how to “brick” it into one app
+<br/>
+
+## Android tablet: how to “brick” it into one app
 This part is solved. Don’t invent this.
 What you want is Android Kiosk Mode using Lock Task Mode (Android’s official dedicated-device mode). It’s built specifically for single-purpose tablets and prevents users from leaving the app, opening settings, notifications, or home screen when configured correctly. 
 This is what you use.
 Correct way
 Use:
-
-
-Android Enterprise
-
-
-Device Owner mode
-
-
-Lock Task Mode (single-app kiosk)
-
+- Android Enterprise
+- Device Owner mode
+- Lock Task Mode (single-app kiosk)
 
 This gives you:
-
-
-one app only
-
-
-no home screen
-
-
-no notifications
-
-
-no settings
-
-
-no app switching
-
-
-auto-launch on boot
-
-
-relaunch if app crashes
-
+- one app only
+- no home screen
+- no notifications
+- no settings
+- no app switching
+- auto-launch on boot
+- relaunch if app crashes
 
 That’s the official way to “brick” it.
 Not root.
 Not custom ROM.
 Not hacky launcher tricks.
 Use proper Android kiosk mode.
-You build:
-
-
-your app
-
-
-provision tablet as dedicated device
-
-
-set app as allowlisted
-
-
-launch in lock task mode
-
+We build:
+- our app
+- provision tablet as dedicated device
+- set app as allowlisted
+- launch in lock task mode
 
 That’s it.
 Android literally supports this natively for kiosk devices. 
 
-Tablet strategy (important)
-You have 2 choices:
+<br/>
+## Tablet strategy (important)
+We have 2 choices:
 Option 1: Native Android app
 Best long-term.
 Pros:
-
-
-better device control
-
-
-better kiosk support
-
-
-offline robustness
-
-
-cleaner peripheral handling
-
+- better device control
+- better kiosk support
+- offline robustness
+- cleaner peripheral handling
 
 Cons:
-
-
-more engineering
-
+- more engineering
 
 Best for real product.
 
-Option 2: Web app in kiosk browser
+<br/>
+## Option 2: Web app in kiosk browser
 Fastest MVP.
+
 Tablet boots directly into:
-
-
-fullscreen kiosk browser
-
-
-loads local hub UI
-
-
-cannot leave app
-
+- fullscreen kiosk browser
+- loads local hub UI
+- cannot leave app
 
 Very fast to ship.
 Great MVP path.
@@ -510,29 +332,14 @@ Build this in phases.
 v1 (ship fast)
 
 
-2 USB webcams
-
-
-mini PC hub
-
-
-local pose inference
-
-
-tablet in kiosk browser
-
-
-squat only
-
-
-live rep counting
-
-
-3–5 coaching cues
-
-
-cloud dashboard for gym owner
-
+- 2 USB webcams
+- mini PC hub
+- local pose inference
+- tablet in kiosk browser
+- squat only
+- live rep counting
+- 3–5 coaching cues
+- cloud dashboard for gym owner
 
 That is enough to sell.
 Don’t build deadlift.
@@ -543,21 +350,11 @@ That alone is a business.
 
 v2
 Add:
-
-
-bench
-
-
-deadlift
-
-
-split squat
-
-
-lunge
-
-
-onboarding / member profiles
+- bench
+- deadlift
+- split squat
+- lunge
+- onboarding / member profiles
 
 
 trainer analytics
