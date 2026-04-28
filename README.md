@@ -1,197 +1,121 @@
 # smart-squat-rack-kit
 
 Yep — this is a very real, sellable B2B wedge.
-You’re not building “AI fitness.” You’re building retrofit computer vision for dumb gym equipment.
-That’s the pitch.
+Retrofits computer vision for dumb gym equipment.
+
 Gyms already spent money on racks. They do not want to replace them with $8k smart racks.
-They will buy a $500–$1,500 bolt-on kit that turns their existing rack into:
 
-
-squat coach
-
-
-rep counter
-
-
-form checker
-
-
-branded member experience
-
-
-premium upsell / PT-lite station
-
+BUT they will buy a $500–$1,500 bolt-on kit that turns their existing rack into:
+- a coach for squats (and any other barbell exercise)
+- a rep/set counter
+- a form checker
+- a branded member experience
+- possibly a premium upsell / PT-lite station
 
 That’s the business.
 
-The actual product
-You’re selling a “Smart Squat Rack Retrofit Kit” to gyms.
-Think:
+<br/>
 
-“Turn any squat rack into an AI squat coach in 20 minutes.”
+## The actual product
+We’re selling a “Smart Squat Rack Retrofit Kit” to gyms.
 
-The gym buys:
+Sales pitch:
+“It turns any squat rack into an AI squat coach in 20 minutes.”
 
+The gym buys a kit with:
 
-2 cameras
-
-
-1 locked-down tablet
-
-
-1 display (optional TV)
-
-
-1 small compute box / hub
-
-
-your software subscription
-
+- 2 cameras
+- 1 locked-down tablet
+- 1 small compute box / hub
+- 1 display (optional TV)
+- our software subscription
 
 That’s the whole product.
 
-What the gym gets
+## What the gym gets
 For gym owners, this is not “AI posture analysis.”
-It is:
-
-
-a premium member feature
-
-
-a personal training upsell
-
-
-a differentiator vs nearby gyms
-
-
-a way to monetize existing floor space
-
-
-a “wow” factor for social media / retention
-
+It's:
+- a premium member feature
+- a personal training upsell
+- a differentiator vs nearby gyms
+- a way to monetize existing floor space
+- a “wow” factor for social media / retention
 
 Sell the outcome, not the model.
-The gym owner hears:
 
+<br/>
 
-“members love this”
+## The gym owner hears:
 
-
-“higher retention”
-
-
-“charge +$15/mo for smart racks”
-
-
-“reduce beginner intimidation”
-
-
-“AI coach without paying another trainer”
-
+- “members love this”
+- “higher retention”
+- “charge +$15/mo for smart racks”
+- “reduce beginner intimidation”
+- “AI coach without paying another trainer”
 
 That’s the sale.
 
 Recommended hardware stack (v1)
+
 Don’t overbuild this.
-Your v1 should be brutally practical.
-Per rack hardware
-1. Front camera
+
+v1 should be brutally practical.
+
+# Per rack hardware
+<br/>
+
+## 1. Front camera
 Mounted straight-on, chest height.
 Purpose:
 
-
-knee tracking
-
-
-stance width
-
-
-bar centering
-
-
-hip shift / asymmetry
-
-
-valgus detection
-
+- knee tracking
+- stance width
+- bar centering
+- hip shift / asymmetry
+- valgus detection
 
 Use:
+- cheap USB webcam or PoE cam
+- 1080p / 30fps is enough
 
 
-cheap USB webcam or PoE cam
-
-
-1080p / 30fps is enough
-
-
-2. Side camera
+## 2. Side camera
 Mounted side profile.
 Purpose:
 
-
-depth
-
-
-torso angle
-
-
-bar path
-
-
-hip hinge
-
-
-lumbar flexion estimate
-
+- depth
+- torso angle
+- bar path
+- hip hinge
+- lumbar flexion estimate
 
 Use:
-
-
-same camera
-
+- same type of camera
 
 These two views are enough for a strong v1.
 No depth sensor needed yet. No LiDAR. No fancy nonsense.
 
-3. Android tablet (user interface)
+## 3. Android tablet (user interface)
 Mounted to rack.
 Purpose:
+- choose exercise
+- start set
+- review cues
+- read feedback
+- see rep count
+- login / guest mode
 
+This is our “face” to the user.
 
-choose exercise
-
-
-start set
-
-
-review cues
-
-
-read feedback
-
-
-see rep count
-
-
-login / guest mode
-
-
-This is your “face” to the user.
 Cheap, replaceable, easy to source.
+
 Use:
+- 10–12" Android tablet
+- wall mount / VESA enclosure
+- rugged case if needed
 
+## 4. Optional TV (premium)
 
-10–12" Android tablet
-
-
-wall mount / VESA enclosure
-
-
-rugged case if needed
-
-
-
-4. Optional TV (premium)
 Big wall-mounted display.
 Purpose:
 
