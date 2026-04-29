@@ -1,0 +1,24 @@
+[project]
+name = "cackle"
+version = "0.1.0"
+description = "Dual webcam capture service for AI lifting coach"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python>=4.10.0",
+    "pyzmq>=26.0.0",
+    "numpy>=2.0.0",
+]
+
+[project.scripts]
+cackle = "cackle.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]

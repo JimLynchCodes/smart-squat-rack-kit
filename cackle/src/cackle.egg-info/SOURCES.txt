@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+src/cackle/__init__.py
+src/cackle/__main__.py
+src/cackle/camera.py
+src/cackle/config.py
+src/cackle/models.py
+src/cackle/publisher.py
+src/cackle/service.py
+src/cackle.egg-info/PKG-INFO
+src/cackle.egg-info/SOURCES.txt
+src/cackle.egg-info/dependency_links.txt
+src/cackle.egg-info/entry_points.txt
+src/cackle.egg-info/requires.txt
+src/cackle.egg-info/top_level.txt
+src/tests/test_import.py
