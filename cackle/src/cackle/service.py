@@ -1,122 +1,120 @@
 import signal
 import time
-
-from cackle.camera import CameraWorker
+from cackle.camera import Camera
+from cackle.config import *
+from cackle.shared_ring import SharedFrame, SharedIndex
 from cackle.publisher import Publisher
-from cackle.shm import FrameSHM
-from cackle.double_buffer import DoubleBufferState
-from cackle.config import (
-    FRONT_CAM_INDEX,
-    SIDE_CAM_INDEX,
-    PUB_ADDR,
-    FRONT_FRAME_SHAPE,
-    SIDE_FRAME_SHAPE,
-)
 
 
-def run() -> None:
-    running = True
+def run():
+   running = True
 
-    def handle(sig, frame):
-        nonlocal running
-        running = False
 
-    signal.signal(signal.SIGINT, handle)
-    signal.signal(signal.SIGTERM, handle)
+   def stop(*_):
+       nonlocal running
+       running = False
 
-    # -------------------------
-    # cameras
-    # -------------------------
-    front = CameraWorker("front", FRONT_CAM_INDEX)
-    side = CameraWorker("side", SIDE_CAM_INDEX)
 
-    # -------------------------
-    # shared memory (double buffer)
-    # -------------------------
-    front_a = FrameSHM("cackle_front_a", FRONT_FRAME_SHAPE)
-    front_b = FrameSHM("cackle_front_b", FRONT_FRAME_SHAPE)
+   signal.signal(signal.SIGINT, stop)
+   signal.signal(signal.SIGTERM, stop)
 
-    side_a = FrameSHM("cackle_side_a", SIDE_FRAME_SHAPE)
-    side_b = FrameSHM("cackle_side_b", SIDE_FRAME_SHAPE)
 
-    buffer_state = DoubleBufferState()
+   pub = Publisher(ZMQ_ADDR)
 
-    # -------------------------
-    # event bus
-    # -------------------------
-    pub = Publisher(PUB_ADDR)
 
-    front.start()
-    side.start()
+   # Note: Camera init uses (width, height)
+   front_cam = Camera(0, FRONT_SHAPE[1], FRONT_SHAPE[0], FPS)
+   side_cam = Camera(1, SIDE_SHAPE[1], SIDE_SHAPE[0], FPS)
+  
+   front_cam.open()
+   side_cam.open()
 
-    print("[cackle] LEVEL 2 active (double-buffer + shm + sync)")
 
-    frame_id = 0
+   # Pre-read once to verify actual hardware resolution
+   f_test = front_cam.read()
+   s_test = side_cam.read()
+  
+   if f_test is None or s_test is None:
+       print("[ERROR] Could not read from cameras.")
+       return
 
-    try:
-        while running:
-            front_data = front.get_latest()
-            side_data = side.get_latest()
 
-            if not front_data or not side_data:
-                time.sleep(0.01)
-                continue
+   ACTUAL_FRONT_SHAPE = f_test.shape
+   ACTUAL_SIDE_SHAPE = s_test.shape
 
-            front_packet, front_frame = front_data
-            side_packet, side_frame = side_data
 
-            # -------------------------
-            # WRITE FIRST (IMPORTANT)
-            # -------------------------
-            if buffer_state.active == "a":
-                front_a.write(front_frame)
-                side_a.write(side_frame)
-            else:
-                front_b.write(front_frame)
-                side_b.write(side_frame)
+   front_buf = [SharedFrame(f"{FRONT_PREFIX}{i}", ACTUAL_FRONT_SHAPE, create=True) for i in range(RING_SIZE)]
+   side_buf = [SharedFrame(f"{SIDE_PREFIX}{i}", ACTUAL_SIDE_SHAPE, create=True) for i in range(RING_SIZE)]
+  
+   index_shm = SharedIndex(FRAME_INDEX_NAME, create=True)
+   frame_id_shm = SharedIndex(FRAME_ID_NAME, create=True)
 
-            # -------------------------
-            # FLIP AFTER WRITE
-            # -------------------------
-            active = buffer_state.flip()
 
-            # -------------------------
-            # PUBLISH EVENT
-            # -------------------------
-            pub.publish(
-                "frame.sync",
-                {
-                    "frame_id": frame_id,
-                    "active_buffer": active,
-                    "front": {
-                        "camera": "front",
-                        "frame_id": front_packet.frame_id,
-                        "shm": f"cackle_front_{active}",
-                    },
-                    "side": {
-                        "camera": "side",
-                        "frame_id": side_packet.frame_id,
-                        "shm": f"cackle_side_{active}",
-                    },
-                },
-            )
+   print("[cackle-service] running | Metadata Timestamps Enabled")
 
-            print(f"[cackle] frame.sync {frame_id} buffer={active}")
 
-            frame_id += 1
-            time.sleep(0.01)
+   try:
+       while running:
+           # Capture global start time for this sync pair
+           ts_sync = time.time()
 
-    finally:
-        print("[cackle] shutting down")
 
-        front.stop()
-        side.stop()
+           f = front_cam.read()
+           ts_front = time.time() # Precise moment front frame was finished reading
 
-        for shm in [front_a, front_b, side_a, side_b]:
-            shm.close()
-            try:
-                shm.unlink()
-            except FileNotFoundError:
-                pass
 
-        pub.close()
+           s = side_cam.read()
+           ts_side = time.time()  # Precise moment side frame was finished reading
+
+
+           if f is None or s is None:
+               continue
+
+
+           fid = frame_id_shm.get() + 1
+           frame_id_shm.set(fid)
+          
+           i = fid % RING_SIZE
+           index_shm.set(i)
+
+
+           front_buf[i].write(f)
+           side_buf[i].write(s)
+
+
+           payload = {
+               'frame_id': fid,
+               'timestamp_sync': ts_sync,
+               'active_buffer': i,
+               'front': {
+                   'camera': 'front',
+                   'frame_id': fid,
+                   'shm': f"{FRONT_PREFIX}{i}",
+                   'timestamp': ts_front
+               },
+               'side': {
+                   'camera': 'side',
+                   'frame_id': fid,
+                   'shm': f"{SIDE_PREFIX}{i}",
+                   'timestamp': ts_side
+               }
+           }
+
+
+           print(f"[publishing...] topic: frame.sync | payload: {payload}")
+           pub.publish("frame.sync", payload)
+
+
+           time.sleep(0.01)
+
+
+   finally:
+       print("\n[cackle] Cleaning up resources...")
+       front_cam.close()
+       side_cam.close()
+       index_shm.unlink()
+       frame_id_shm.unlink()
+       for b in front_buf + side_buf:
+           b.unlink()
+       pub.close()
+       print("[cackle] Resources released.")

@@ -7,6 +7,7 @@ src/cackle/config.py
 src/cackle/models.py
 src/cackle/publisher.py
 src/cackle/service.py
+src/cackle/shared_ring.py
 src/cackle.egg-info/PKG-INFO
 src/cackle.egg-info/SOURCES.txt
 src/cackle.egg-info/dependency_links.txt
