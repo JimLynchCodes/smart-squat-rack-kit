@@ -8,6 +8,6 @@ class FrameSubscriber:
         self.sock.connect(addr)
         self.sock.setsockopt_string(zmq.SUBSCRIBE, "frame.sync")
 
-    def recv(self):
+    def recv(self) -> bytes:
         _, msg = self.sock.recv_multipart()
         return msg

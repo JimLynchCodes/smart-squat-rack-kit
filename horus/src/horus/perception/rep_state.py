@@ -1,22 +1,27 @@
+from horus.types import Derived, RepPhase
+
+
 class RepStateMachine:
     def __init__(self):
-        self.prev = None
+        self.prev_hip_y: float | None = None
+        self.phase: RepPhase = "IDLE"
 
-    def update(self, pose):
-        hip_y = pose["hip"][1]
+    def update(self, derived: Derived) -> RepPhase:
+        hip_y = derived["hip_center"][1]
 
-        if self.prev is None:
-            self.prev = hip_y
-            return "IDLE"
+        if self.prev_hip_y is None:
+            self.prev_hip_y = hip_y
+            self.phase = "IDLE"
+            return self.phase
 
-        delta = hip_y - self.prev
+        delta = hip_y - self.prev_hip_y
 
         if delta > 0.01:
-            state = "DESCENT"
+            self.phase = "DESCENT"
         elif delta < -0.01:
-            state = "ASCENT"
+            self.phase = "ASCENT"
         else:
-            state = "BOTTOM"
+            self.phase = "BOTTOM"
 
-        self.prev = hip_y
-        return state
+        self.prev_hip_y = hip_y
+        return self.phase

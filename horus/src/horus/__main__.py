@@ -2,7 +2,7 @@ import json
 import signal
 import time
 
-from horus.config import FRAME_SYNC_ADDR
+from horus.config import FRAME_SYNC_ADDR, FRONT_SHAPE, SIDE_SHAPE
 from horus.zmq_client import FrameSubscriber
 from horus.shm import SharedFrame
 from horus.pipeline import HorusPipeline
@@ -21,36 +21,44 @@ def main():
     sub = FrameSubscriber(FRAME_SYNC_ADDR)
     pipeline = HorusPipeline()
 
-    front_cache = None
-    side_cache = None
-
-    print("[horus] running")
+    print("[horus] online")
 
     while running:
         msg = sub.recv()
-        payload = json.loads(msg.decode())
+        payload = json.loads(msg.decode("utf-8"))
 
         buffer = payload["active_buffer"]
 
         front_name = f"cackle_front_{buffer}"
         side_name = f"cackle_side_{buffer}"
 
-        # attach correct buffer
-        front = SharedFrame(front_name, (1080, 1920, 3))
-        side = SharedFrame(side_name, (720, 1280, 3))
+        front = SharedFrame(front_name, FRONT_SHAPE)
+        side = SharedFrame(side_name, SIDE_SHAPE)
 
-        front_frame = front.read()
+        try:
+            front_frame = front.read()
+            side_frame = side.read()
 
-        result = pipeline.process(payload["frame_id"], front_frame)
+            result = pipeline.process(
+                frame_id=payload["frame_id"],
+                front_frame=front_frame,
+                side_frame=side_frame,
+            )
 
-        print(
-            f"[horus] frame={result['frame_id']} "
-            f"phase={result['phase']} "
-            f"knee={result['metrics']['knee_angle_proxy']:.1f}"
-        )
+            print(
+                f"[horus] "
+                f"frame={result['frame_id']} "
+                f"phase={result['rep_phase']:<7} "
+                f"knee={result['metrics']['knee_angle_proxy']:.1f} "
+                f"hip={result['metrics']['hip_height']:.2f} "
+                f"back={result['metrics']['back_angle']:.1f} "
+                f"knee_track={result['metrics']['knee_track']:+.3f} "
+                f"bar_dx={result['bar']['path_dx']:+.3f}"
+            )
 
-        front.close()
-        side.close()
+        finally:
+            front.close()
+            side.close()
 
         time.sleep(0.001)
 
