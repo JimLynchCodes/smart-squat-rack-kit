@@ -1,2 +1,0 @@
-[console_scripts]
-cackle = cackle.__main__:main
