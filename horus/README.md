@@ -24,3 +24,19 @@ Horus is part of a 2-process vision pipeline:
 ---
 
 ## 🔄 Data flow
+
+
+Horus should send this every frame:
+
+JSON
+{
+  "frame_id": 1234,
+  "pose": { ... }, 
+  "instant_metrics": {
+     "back_angle": 42.1,
+     "knee_angle": 88.5,
+     "knee_dist": 0.45,
+     "hip_y": 0.72
+  },
+  "bar_pos": [x, y]
+}

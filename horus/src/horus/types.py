@@ -1,52 +1,27 @@
-from typing import Literal, TypedDict
+from typing import TypedDict, List, Dict
 
+class Point(TypedDict):
+    x: float
+    y: float
 
-Point = tuple[float, float]
-RepPhase = Literal["IDLE", "DESCENT", "BOTTOM", "ASCENT"]
+class PoseData(TypedDict):
+    hip: List[float]
+    knee: List[float]
+    ankle: List[float]
+    shoulder: List[float]
 
+class DerivedData(TypedDict):
+    knee_angle: float
+    hip_angle: float
+    vertical_velocity: float
 
-class Pose(TypedDict):
-    left_shoulder: Point
-    right_shoulder: Point
-
-    left_hip: Point
-    right_hip: Point
-
-    left_knee: Point
-    right_knee: Point
-
-    left_ankle: Point
-    right_ankle: Point
-
-    left_foot: Point
-    right_foot: Point
-
-
-class Derived(TypedDict):
-    shoulder_center: Point
-    hip_center: Point
-    bar_center: Point
-
-
-class Metrics(TypedDict):
-    knee_angle_left: float
-    knee_angle_right: float
-    hip_height: float
-    back_angle: float
-    stance_width: float
-    knee_track_left: float
-    knee_track_right: float
-
-
-class Bar(TypedDict):
-    position: Point
-    path_dx: float
-
-
-class HorusResult(TypedDict):
+# This matches the structure Sensei expects
+class HorusPacket(TypedDict):
     frame_id: int
-    pose: Pose
-    derived: Derived
-    rep_phase: RepPhase
-    metrics: Metrics
-    bar: Bar
+    pose: Dict[str, list]
+    rep_phase: str
+    metrics: Dict[str, float]
+    bar: Dict[str, any]
+    ts_cackle: float
+    ts_horus: float
+    
