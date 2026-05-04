@@ -1,18 +1,15 @@
-# Change these to 1080p based on your error message
-FRONT_SHAPE = (1080, 1920, 3)
-SIDE_SHAPE = (1080, 1920, 3)
-FPS = 30
+# Network / IPC
+ZMQ_ADDR = "tcp://*:5555"
+FRAME_INDEX_NAME = "cackle_index"
+FRAME_ID_NAME = "cackle_frame_id"
 
-
-RING_SIZE = 4
-
-
-FRAME_INDEX_NAME = "cackle_idx"
-FRAME_ID_NAME = "cackle_fid"
-
-
+# Buffers
 FRONT_PREFIX = "cackle_front_"
 SIDE_PREFIX = "cackle_side_"
+RING_SIZE = 4
 
-
-ZMQ_ADDR = "tcp://*:5555"
+# Hardware Targets (Intent)
+# Service will try to set these, but will use actual hardware res for SHM
+FRONT_SHAPE = (1080, 1920, 3) 
+SIDE_SHAPE = (1080, 1920, 3)
+FPS = 30
