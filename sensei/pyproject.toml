@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sensei"
+version = "0.1.0"
+description = "Real-time rep, fault, and set tracking service for Horus pose streams"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Jim Lynch", email = "mrdotjim@gmail.com" }
+]
+dependencies = [
+  "pyzmq>=26.0.0"
+]
+
+[project.scripts]
+sensei = "sensei.service:run"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

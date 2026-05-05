@@ -11,5 +11,5 @@ RING_SIZE = 4
 # Hardware Targets (Intent)
 # Service will try to set these, but will use actual hardware res for SHM
 FRONT_SHAPE = (1080, 1920, 3) 
-SIDE_SHAPE = (1080, 1920, 3)
+SIDE_SHAPE = (720, 1280, 3)
 FPS = 30
