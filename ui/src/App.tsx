@@ -1,5 +1,3 @@
-import "./styles.css";
-
 import PoseCanvas from "./components/PoseCanvas";
 import LiveMetrics from "./components/LiveMetrics";
 import RepSummaryCard from "./components/RepSummaryCard";
