@@ -1,11 +1,12 @@
 # Network / IPC
 ZMQ_ADDR = "tcp://*:5555"
-FRAME_INDEX_NAME = "cackle_index"
+FRAME_INDEX_NAME = "cackle_frame_index"
 FRAME_ID_NAME = "cackle_frame_id"
 
-# Buffers
 FRONT_PREFIX = "cackle_front_"
-SIDE_PREFIX = "cackle_side_"
+SIDE_PREFIX  = "cackle_side_"
+
+# Buffers
 RING_SIZE = 4
 
 # Hardware Targets (Intent)

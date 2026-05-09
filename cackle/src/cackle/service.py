@@ -1,10 +1,12 @@
 import signal
 import time
 import cv2
+
 from cackle.camera import Camera
 from cackle.config import *
 from cackle.shared_ring import SharedFrame, SharedIndex
 from cackle.publisher import Publisher
+
 
 def run():
     running = True
@@ -18,107 +20,115 @@ def run():
 
     pub = Publisher(ZMQ_ADDR)
 
-    print(f"[cackle] Initializing cameras...")
+    print("[cackle] starting cameras...")
 
-    # Camera(ID, Width, Height, FPS)
-    # Note: We pass config intent, but hardware may override
     front_cam = Camera(0, FRONT_SHAPE[1], FRONT_SHAPE[0], FPS)
     side_cam = Camera(1, SIDE_SHAPE[1], SIDE_SHAPE[0], FPS)
-  
+
     front_cam.open()
     side_cam.open()
 
-    # Pre-read once to verify actual hardware resolution
+    # warmup
     f_test = front_cam.read()
     s_test = side_cam.read()
-  
+
     if f_test is None or s_test is None:
-        print("[ERROR] Could not read from cameras. Check USB connections.")
+        print("[cackle] ERROR: camera init failed")
         return
 
-    # THE TRUTH: Get actual shapes from the hardware buffers
     ACTUAL_FRONT_SHAPE = f_test.shape
     ACTUAL_SIDE_SHAPE = s_test.shape
 
-    print("\n" + "="*50)
-    print("HARDWARE SYNC COMPLETE")
-    print(f"FRONT: {ACTUAL_FRONT_SHAPE}")
-    print(f"SIDE:  {ACTUAL_SIDE_SHAPE}")
-    print("="*50 + "\n")
+    print("\n==============================")
+    print("[cackle] SHM INIT")
+    print("FRONT:", ACTUAL_FRONT_SHAPE)
+    print("SIDE :", ACTUAL_SIDE_SHAPE)
+    print("==============================\n")
 
-    # Create Shared Memory based on what the hardware IS, not what we WANT
+    # =====================================================
+    # SHARED MEMORY (THIS MUST EXIST BEFORE HORUS STARTS)
+    # =====================================================
     front_buf = [
-        SharedFrame(f"{FRONT_PREFIX}{i}", ACTUAL_FRONT_SHAPE, create=True) 
+        SharedFrame(f"{FRONT_PREFIX}{i}", ACTUAL_FRONT_SHAPE, create=True)
         for i in range(RING_SIZE)
     ]
+
     side_buf = [
-        SharedFrame(f"{SIDE_PREFIX}{i}", ACTUAL_SIDE_SHAPE, create=True) 
+        SharedFrame(f"{SIDE_PREFIX}{i}", ACTUAL_SIDE_SHAPE, create=True)
         for i in range(RING_SIZE)
     ]
-  
+
     index_shm = SharedIndex(FRAME_INDEX_NAME, create=True)
     frame_id_shm = SharedIndex(FRAME_ID_NAME, create=True)
 
-    print("[cackle-service] online | publishing to frame.sync")
+    # reset state
+    index_shm.set(0)
+    frame_id_shm.set(0)
+
+    print("[cackle] SHM READY ✓")
+
+    # =====================================================
+    # DEBUG: VERIFY SHM IS REAL IN OS
+    # =====================================================
+    from multiprocessing import shared_memory
+
+    try:
+        shm = shared_memory.SharedMemory(name=FRAME_INDEX_NAME)
+        shm.close()
+        print("[cackle] VERIFIED: index visible in OS")
+    except FileNotFoundError:
+        print("[cackle] FATAL: index NOT visible (SHM broken)")
+        return
+
+    # =====================================================
+    # MAIN LOOP
+    # =====================================================
+    frame_count = 0
+    last_log = time.time()
 
     try:
         while running:
-            ts_sync = time.time()
 
             f = front_cam.read()
-            ts_front = time.time() 
-
             s = side_cam.read()
-            ts_side = time.time()  
 
             if f is None or s is None:
+                print("[cackle] WARNING: frame dropped")
                 continue
+
+            frame_count += 1
 
             fid = frame_id_shm.get() + 1
             frame_id_shm.set(fid)
-          
-            i = fid % RING_SIZE
-            index_shm.set(i)
 
-            front_buf[i].write(f)
-            side_buf[i].write(s)
+            slot = fid % RING_SIZE
+            index_shm.set(slot)
 
-            # PAYLOAD: Pass 'shape' so Horus can dynamically adjust
-            payload = {
-                'frame_id': fid,
-                'timestamp_sync': ts_sync,
-                'active_buffer': i,
-                'front': {
-                    'shm': f"{FRONT_PREFIX}{i}",
-                    'shape': ACTUAL_FRONT_SHAPE, # (H, W, C)
-                    'timestamp': ts_front
-                },
-                'side': {
-                    'shm': f"{SIDE_PREFIX}{i}",
-                    'shape': ACTUAL_SIDE_SHAPE, # (H, W, C)
-                    'timestamp': ts_side
-                }
-            }
+            front_buf[slot].write(f)
+            side_buf[slot].write(s)
 
-            pub.publish("frame.sync", payload)
-            print(f"[publishing...] topic: frame.sync | payload: {payload}")
+            pub.publish("frame.sync", {
+                "frame_id": fid,
+                "slot": slot,
+            })
 
-            # Print status every 100 frames to keep the terminal clean
-            if fid % 100 == 0:
-                print(f"[cackle] Active: Frame {fid} | Slot {i}")
+            # heartbeat log
+            if time.time() - last_log > 2.0:
+                print(f"[cackle] alive | frame={fid}")
+                last_log = time.time()
 
-            time.sleep(0.001) # Maximize throughput
+            time.sleep(0.001)
 
     finally:
-        print("\n[cackle] Cleaning up resources...")
+        print("\n[cackle] shutting down...")
+
         front_cam.close()
         side_cam.close()
+
         index_shm.unlink()
         frame_id_shm.unlink()
+
         for b in front_buf + side_buf:
             b.unlink()
-        pub.close()
-        print("[cackle] Resources released.")
 
-if __name__ == "__main__":
-    run()
+        pub.close()

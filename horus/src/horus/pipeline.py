@@ -1,198 +1,139 @@
 import numpy as np
 import time
 from ultralytics import YOLO
+from horus.utils import to_float
 
 
 class SquatPipeline:
-    """
-    Horus Vision Pipeline (stable v2)
-
-    Input:
-        - side_img (numpy BGR frame from OpenCV)
-
-    Output:
-        - pose dict
-        - rep_phase
-        - instant_metrics
-        - bar dynamics
-    """
 
     def __init__(self):
 
-        # ---------------------------
-        # YOLO MODEL
-        # ---------------------------
         self.model = YOLO("yolov8n-pose.pt")
+        self.model.overrides["verbose"] = False
 
-        # ---------------------------
-        # MOTION STATE
-        # ---------------------------
         self.prev_bar_y = None
         self.prev_ts = None
-        self.prev_velocity = 0.0
 
-        # smoothing (stability boost)
-        self.alpha = 0.25
-        self.smooth_vel = 0.0
-        self.smooth_accel = 0.0
+    # -------------------------
+    def midpoint(self, a, b):
+        return [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]
 
-    # =========================================================
-    # UTIL
-    # =========================================================
-    def midpoint(self, p1, p2):
-        return [
-            (p1[0] + p2[0]) * 0.5,
-            (p1[1] + p2[1]) * 0.5,
-        ]
+    def angle(self, v1, v2):
+        v1 = np.array(v1, dtype=np.float32)
+        v2 = np.array(v2, dtype=np.float32)
 
-    # =========================================================
-    # MAIN PIPELINE
-    # =========================================================
+        n1 = np.linalg.norm(v1)
+        n2 = np.linalg.norm(v2)
+
+        if n1 < 1e-6 or n2 < 1e-6:
+            return 0.0
+
+        cos = np.dot(v1, v2) / (n1 * n2)
+        return np.degrees(np.arccos(np.clip(cos, -1.0, 1.0)))
+
+    # -------------------------
     def process(self, front_img, side_img):
 
-        # ---------------------------
-        # SAFETY CHECK (IMPORTANT)
-        # ---------------------------
         if side_img is None:
             return {}, "NO_PERSON", {}, {}
 
-        # YOLO inference
-        results = self.model(side_img, verbose=False)[0]
+        side = self.model(side_img, verbose=False)[0]
+        front = self.model(front_img, verbose=False)[0] if front_img is not None else None
 
-        if results.keypoints is None or len(results.keypoints.data) == 0:
+        if side.keypoints is None or len(side.keypoints.data) == 0:
             return {}, "NO_PERSON", {}, {}
 
-        kp = results.keypoints.xyn[0].cpu().numpy()
+        skp = side.keypoints.xyn[0].cpu().numpy()
+        fkp = front.keypoints.xyn[0].cpu().numpy() if front else skp
 
-        def get(i):
+        def g(kp, i):
             if i >= len(kp):
                 return [0.0, 0.0]
             return kp[i].tolist()
 
-        # ---------------------------
-        # KEYPOINTS
-        # ---------------------------
-        l_hip, r_hip = get(11), get(12)
-        l_knee, r_knee = get(13), get(14)
-        l_ankle, r_ankle = get(15), get(16)
-        l_sh, r_sh = get(5), get(6)
+        # SIDE
+        l_sh, r_sh = g(skp, 5), g(skp, 6)
+        l_el, r_el = g(skp, 7), g(skp, 8)
+        l_wr, r_wr = g(skp, 9), g(skp, 10)
+
+        l_hip, r_hip = g(skp, 11), g(skp, 12)
+        l_knee, r_knee = g(skp, 13), g(skp, 14)
+        l_ankle, r_ankle = g(skp, 15), g(skp, 16)
 
         hip_mid = self.midpoint(l_hip, r_hip)
-        knee_mid = self.midpoint(l_knee, r_knee)
-        ankle_mid = self.midpoint(l_ankle, r_ankle)
         sh_mid = self.midpoint(l_sh, r_sh)
 
-        # ---------------------------
-        # ANGLES
-        # ---------------------------
+        # FRONT
+        fl_knee, fr_knee = g(fkp, 13), g(fkp, 14)
+        fl_ankle, fr_ankle = g(fkp, 15), g(fkp, 16)
 
-        # knee angle
-        ba = np.array(l_hip) - np.array(l_knee)
-        bc = np.array(l_ankle) - np.array(l_knee)
+        # -------------------------
+        # METRICS
+        # -------------------------
+        back_angle = self.angle(np.array(sh_mid) - np.array(hip_mid), [0, -1])
 
-        knee_cos = np.dot(ba, bc) / (
-            np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6
+        knee_angle = self.angle(
+            np.array(l_hip) - np.array(l_knee),
+            np.array(l_ankle) - np.array(l_knee),
         )
 
-        knee_angle = np.degrees(
-            np.arccos(np.clip(knee_cos, -1.0, 1.0))
+        forearm_angle = 0.5 * (
+            self.angle(np.array(l_wr) - np.array(l_el), [0, -1]) +
+            self.angle(np.array(r_wr) - np.array(r_el), [0, -1])
         )
 
-        # back angle
-        back_vec = np.array(sh_mid) - np.array(hip_mid)
+        knee_valgus = abs(fl_knee[0] - fr_knee[0]) if front_img is not None else 0.0
 
-        back_angle = np.degrees(
-            np.arctan2(abs(back_vec[0]), abs(back_vec[1]) + 1e-6)
-        )
-
-        # ---------------------------
-        # BAR TRACKING
-        # ---------------------------
+        # -------------------------
+        # BAR
+        # -------------------------
         now = time.time()
         bar_y = sh_mid[1]
 
         vel_y = 0.0
-        accel_y = 0.0
 
-        if self.prev_ts is not None and self.prev_bar_y is not None:
-
+        if self.prev_ts:
             dt = now - self.prev_ts
+            if dt > 0:
+                vel_y = (bar_y - self.prev_bar_y) / dt
 
-            if 0 < dt < 0.5:
-
-                raw_vel = (bar_y - self.prev_bar_y) / dt
-
-                # smoothing
-                self.smooth_vel = (
-                    self.alpha * raw_vel
-                    + (1 - self.alpha) * self.smooth_vel
-                )
-
-                vel_y = self.smooth_vel
-
-                raw_accel = (vel_y - self.prev_velocity) / dt
-
-                self.smooth_accel = (
-                    self.alpha * raw_accel
-                    + (1 - self.alpha) * self.smooth_accel
-                )
-
-                accel_y = self.smooth_accel
-
-        self.prev_bar_y = bar_y
         self.prev_ts = now
-        self.prev_velocity = vel_y
+        self.prev_bar_y = bar_y
 
-        # ---------------------------
-        # PHASE DETECTION
-        # ---------------------------
-        THRESH = 0.01
-
-        if abs(vel_y) < THRESH:
-            phase = "LOCKOUT"
-        elif vel_y > THRESH:
-            phase = "DESCENT"
-        else:
-            phase = "ASCENT"
-
-        # ---------------------------
-        # OUTPUT METRICS
-        # ---------------------------
+        # -------------------------
+        # OUTPUT
+        # -------------------------
         pose = {
-            "left_hip": l_hip,
-            "right_hip": r_hip,
-            "hips_midpoint": hip_mid,
-
-            "left_knee": l_knee,
-            "right_knee": r_knee,
-            "knees_midpoint": knee_mid,
-
-            "left_ankle": l_ankle,
-            "right_ankle": r_ankle,
-            "ankles_midpoint": ankle_mid,
-
-            "left_shoulder": l_sh,
-            "right_shoulder": r_sh,
-            "shoulders_midpoint": sh_mid,
-
-            "score": float(results.boxes.conf[0]) if results.boxes is not None else 0.9,
-            "direction": "LEFT" if l_sh[0] < r_sh[0] else "RIGHT",
+            "side": {
+                "left_hip": l_hip,
+                "right_hip": r_hip,
+                "left_knee": l_knee,
+                "right_knee": r_knee,
+                "left_ankle": l_ankle,
+                "right_ankle": r_ankle,
+            },
+            "front": {
+                "left_knee": fl_knee,
+                "right_knee": fr_knee,
+                "left_ankle": fl_ankle,
+                "right_ankle": fr_ankle,
+            }
         }
 
         metrics = {
-            "back_angle": round(back_angle, 2),
-            "knee_angle_proxy": round(knee_angle, 2),
-            "knee_dist": abs(l_knee[0] - r_knee[0]),
-            "hip_y": round(hip_mid[1], 4),
-            "depth_relative_to_knee": round(
-                knee_mid[1] - hip_mid[1], 4
-            ),
+            "side": {
+                "back_angle": to_float(round(back_angle, 2)),
+                "knee_angle": to_float(round(knee_angle, 2)),
+                "forearm_angle": to_float(round(forearm_angle, 2)),
+            },
+            "front": {
+                "knee_valgus": to_float(knee_valgus),
+            }
         }
 
         bar = {
-            "position": bar_y,
-            "velocity_y": round(vel_y, 4),
-            "acceleration_y": round(accel_y, 4),
+            "velocity_y": to_float(vel_y),
+            "position": to_float(bar_y),
         }
 
-        return pose, phase, metrics, bar
+        return pose, "UNKNOWN", metrics, bar

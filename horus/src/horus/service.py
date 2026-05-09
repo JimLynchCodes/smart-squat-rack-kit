@@ -1,78 +1,121 @@
-import cv2
 import time
-import zmq
 import json
+from multiprocessing import shared_memory
 
+import numpy as np
+
+from horus.config import *
 from horus.pipeline import SquatPipeline
+from horus.publisher import Publisher
+from horus.shared_ring import SharedIndex
 
 
+# =========================================================
+# LAZY SHARED FRAME (FIXES YOUR CRASH)
+# =========================================================
+class LazyFrame:
+    def __init__(self, name, shape):
+        self.name = name
+        self.shape = shape
+        self.shm = None
+        self.buf = None
+
+    def read(self):
+        try:
+            if self.shm is None:
+                self.shm = shared_memory.SharedMemory(name=self.name)
+                self.buf = np.ndarray(self.shape, dtype=np.uint8, buffer=self.shm.buf)
+
+            return self.buf.copy()
+
+        except FileNotFoundError:
+            return None
+
+
+# =========================================================
+# ATTACH INDEX SAFELY
+# =========================================================
+def attach_index(name):
+    while True:
+        try:
+            shm = shared_memory.SharedMemory(name=name)
+            shm.close()
+            return SharedIndex(name, create=False)
+        except FileNotFoundError:
+            print(f"[horus] waiting for index shm: {name}")
+            time.sleep(0.2)
+
+
+# =========================================================
+# MAIN
+# =========================================================
 def run():
 
-    # ---------------------------
-    # CAMERA (RESTORED)
-    # ---------------------------
-    cap = cv2.VideoCapture(0)  # 0 = default webcam
+    print("[horus] starting...")
 
-    if not cap.isOpened():
-        print("[horus] ERROR: Cannot open camera")
-        return
-
-    # ---------------------------
-    # PIPELINE
-    # ---------------------------
     pipeline = SquatPipeline()
+    pub = Publisher(HORUS_PUB_ADDR)
 
-    # ---------------------------
-    # ZMQ (ONLY FOR OUTPUT)
-    # ---------------------------
-    ctx = zmq.Context.instance()
-    pub = ctx.socket(zmq.PUB)
-    pub.bind("tcp://*:5556")
+    # -------------------------
+    # SHARED MEMORY (SAFE ATTACH)
+    # -------------------------
+    index_shm = attach_index(FRAME_INDEX_NAME)
+    frame_id_shm = attach_index(FRAME_ID_NAME)
 
-    print("[horus] online | reading camera directly...")
+    # IMPORTANT: lazy frames (NO PRE-ATTACH)
+    front_ring = [
+        LazyFrame(f"{FRONT_PREFIX}{i}", FRONT_SHAPE)
+        for i in range(RING_SIZE)
+    ]
 
-    frame_id = 0
+    side_ring = [
+        LazyFrame(f"{SIDE_PREFIX}{i}", SIDE_SHAPE)
+        for i in range(RING_SIZE)
+    ]
 
-    while True:
+    print("[horus] attached (lazy mode) ✓")
 
-        ret, frame = cap.read()
+    # -------------------------
+    # MAIN LOOP
+    # -------------------------
+    try:
+        while True:
 
-        if not ret or frame is None:
-            print("[horus] camera frame empty")
-            continue
+            slot = index_shm.get()
+            frame_id = frame_id_shm.get()
 
-        # ---------------------------
-        # RUN PIPELINE
-        # ---------------------------
-        front = None  # not used anymore
-        side = frame
+            front_img = front_ring[slot].read()
+            side_img = side_ring[slot].read()
 
-        pose, phase, metrics, bar = pipeline.process(front, side)
+            # if frames not ready yet
+            if front_img is None or side_img is None:
+                print("[horus] waiting for frames...")
+                time.sleep(0.01)
+                continue
 
-        if not pose:
-            continue
+            pose, phase, metrics, bar = pipeline.process(
+                front_img,
+                side_img
+            )
 
-        payload = {
-            "frame_id": frame_id,
-            "pose": pose,
-            "rep_phase": phase,
-            "instant_metrics": metrics,
-            "bar": bar,
-            "ts": time.time()
-        }
+            payload = {
+                "frame_id": frame_id,
+                "phase": phase,
+                "pose": pose,
+                "instant_metrics": metrics,
+                "bar": bar,
+                "ts": time.time(),
+            }
 
-        # ---------------------------
-        # SEND TO SENSEI
-        # ---------------------------
-        pub.send_multipart([
-            b"pose.data",
-            json.dumps(payload).encode()
-        ])
+            print(f"[horus] frame {frame_id} | slot {slot}")
+            print(json.dumps(payload, indent=2, sort_keys=False), flush=True)
 
-        frame_id += 1
+            pub.publish("pose.data", payload)
 
-        # optional debug
-        print(f"[horus] frame {frame_id} | {phase}")
+            time.sleep(0.01)
 
-        # small sleep to reduce CPU burn
-        time.sleep(0.01)
+    except KeyboardInterrupt:
+        print("\n[horus] shutdown")
+
+    finally:
+        pub.close()
