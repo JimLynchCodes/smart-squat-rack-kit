@@ -29,3 +29,11 @@ The output of Sensei is the "Final Intelligence" of the system. While Horus outp
   }
 }
 📊 How the Logic FlowsTo understand why Sensei outputs these specific values, it helps to look at how it maps the "lifecycle" of a squat. It uses the velocity from Horus to move between states:PhaseSensei Internal LogicSensei Output ActionLOCKOUTVelocity < ThresholdPublishes UI_UPDATE; waits for descent.DESCENTVelocity > Threshold (Down)Starts the Rep Timer and begins recording min/max.ASCENTVelocity > Threshold (Up)Continues tracking; looks for the bottom_frame.LOCKOUT (Again)Velocity < ThresholdTriggers REP_COMPLETE; resets the tracker.💡 Why this output is usefulForm Correction: If back_angle_steepest_value is too high, Sensei can trigger an audio alert: "Watch your back lean."Depth Validation: If hip_height_bottom is higher than your recorded knee height, Sensei can log the rep as "No Rep" (red light).Video Review: Because Sensei gives you the bottom_frame, your mobile app can automatically generate a "Highlight Reel" of just the deepest part of every rep you did that day.Essentially, Sensei's output is the Digital Coach talking to your database. Does this data structure cover everything you wanted for your "Sensei" analysis?
+
+## Dev Setup (Mac)
+
+```
+python3 -m venv .venv
+source .venv/bin/activate
+pip install
+```

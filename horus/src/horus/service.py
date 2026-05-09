@@ -1,110 +1,78 @@
+import cv2
 import time
-import json
 import zmq
-import sys
-import numpy as np
-from horus.config import *
-from horus.pipeline import SquatPipeline
-from horus.shm import SharedFrame
+import json
 
-class HorusComms:
-    def __init__(self):
-        self.ctx = zmq.Context()
-        self.sub = self.ctx.socket(zmq.SUB)
-        self.sub.connect(CACKLE_ZMQ_ENDPOINT)
-        self.sub.setsockopt_string(zmq.SUBSCRIBE, "frame.sync")
-        
-        self.pub = self.ctx.socket(zmq.PUB)
-        self.pub.bind(HORUS_ZMQ_ADDR)
+from horus.pipeline import SquatPipeline
+
 
 def run():
-    print("[horus] starting dynamic service...")
-    
+
+    # ---------------------------
+    # CAMERA (RESTORED)
+    # ---------------------------
+    cap = cv2.VideoCapture(0)  # 0 = default webcam
+
+    if not cap.isOpened():
+        print("[horus] ERROR: Cannot open camera")
+        return
+
+    # ---------------------------
+    # PIPELINE
+    # ---------------------------
     pipeline = SquatPipeline()
-    comms = HorusComms()
-    shm_cache = {}
 
-    print("[horus] online. waiting for frame.sync events...")
+    # ---------------------------
+    # ZMQ (ONLY FOR OUTPUT)
+    # ---------------------------
+    ctx = zmq.Context.instance()
+    pub = ctx.socket(zmq.PUB)
+    pub.bind("tcp://*:5556")
 
-    try:
-        while True:
-            try:
-                topic, payload = comms.sub.recv_multipart(flags=zmq.NOBLOCK)
-                meta = json.loads(payload.decode())
-            except zmq.Again:
-                time.sleep(0.001)
-                continue
+    print("[horus] online | reading camera directly...")
 
-            views = {'front': meta['front'], 'side': meta['side']}
-            frames = {}
+    frame_id = 0
 
-            # 1. Sync Shared Memory
-            for view_name, data in views.items():
-                shm_name = data['shm']
-                target_shape = tuple(data['shape']) 
+    while True:
 
-                if shm_name not in shm_cache or shm_cache[shm_name].shape != target_shape:
-                    print(f"[horus] Mapping {shm_name} with shape {target_shape}")
-                    if shm_name in shm_cache:
-                        shm_cache[shm_name].close()
-                    shm_cache[shm_name] = SharedFrame(shm_name, target_shape)
+        ret, frame = cap.read()
 
-                frames[view_name] = shm_cache[shm_name].read()
+        if not ret or frame is None:
+            print("[horus] camera frame empty")
+            continue
 
-            # 2. Process AI Pipeline
-            pose, phase, metrics, bar = pipeline.process(frames['front'], frames['side'])
+        # ---------------------------
+        # RUN PIPELINE
+        # ---------------------------
+        front = None  # not used anymore
+        side = frame
 
-            # 3. Construct the comprehensive payload (Define 'out' first!)
-            out = {
-                "frame_id": meta['frame_id'],
-                "pose": {
-                    "left_hip": pose.get("left_hip"),
-                    "right_hip": pose.get("right_hip"),
-                    "hips_midpoint": pose.get("hips_midpoint"),
-                    "left_knee": pose.get("left_knee"),
-                    "right_knee": pose.get("right_knee"),
-                    "knees_midpoint": pose.get("knees_midpoint"),
-                    "left_ankle": pose.get("left_ankle"),
-                    "right_ankle": pose.get("right_ankle"),
-                    "ankles_midpoint": pose.get("ankles_midpoint"),
-                    "left_shoulder": pose.get("left_shoulder"),
-                    "right_shoulder": pose.get("right_shoulder"),
-                    "shoulders_midpoint": pose.get("shoulders_midpoint"),
-                    "score": pose.get("score", 0.0)
-                },
-                "direction": pose.get("direction", "UNKNOWN"),
-                "rep_phase": phase,
-                "instant_metrics": {
-                    "back_angle": metrics.get("back_angle"),
-                    "knee_angle_proxy": metrics.get("knee_angle_proxy"),
-                    "knee_dist": metrics.get("knees_distance"),
-                    "hip_y": metrics.get("hip_y"),
-                    "depth_relative_to_knee": metrics.get("depth_relative_to_knee")
-                },
-                "bar": {
-                    "position": bar.get("position"),
-                    "velocity_y": bar.get("velocity_y"),
-                    "acceleration_y": bar.get("acceleration_y")
-                },
-                "ts_cackle": meta['timestamp_sync'],
-                "ts_horus": time.time()
-            }
+        pose, phase, metrics, bar = pipeline.process(front, side)
 
-            # 4. Debug Output (Every 100 frames)
-            if meta['frame_id'] % 100 == 0:
-                print(f"\n--- [horus] Frame {meta['frame_id']} Metrics ---")
-                print(json.dumps(out, indent=2))
-                print("-" * 30)
+        if not pose:
+            continue
 
-            # 5. Publish to Sensei
-            comms.pub.send_multipart([b"pose.data", json.dumps(out).encode()])
+        payload = {
+            "frame_id": frame_id,
+            "pose": pose,
+            "rep_phase": phase,
+            "instant_metrics": metrics,
+            "bar": bar,
+            "ts": time.time()
+        }
 
-    except KeyboardInterrupt:
-        print("\n[horus] shutting down...")
-    finally:
-        for shm in shm_cache.values():
-            shm.close()
-        print("[horus] cleaned up.")
+        # ---------------------------
+        # SEND TO SENSEI
+        # ---------------------------
+        pub.send_multipart([
+            b"pose.data",
+            json.dumps(payload).encode()
+        ])
 
-if __name__ == "__main__":
-    run()
+        frame_id += 1
+
+        # optional debug
+        print(f"[horus] frame {frame_id} | {phase}")
+
+        # small sleep to reduce CPU burn
+        time.sleep(0.01)

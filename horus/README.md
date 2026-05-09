@@ -40,3 +40,9 @@ JSON
   },
   "bar_pos": [x, y]
 }
+
+```
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```

@@ -28,6 +28,7 @@ for await (const [msg] of sock) {
   for (const client of clients) {
     if (client.readyState === 1) {
       client.send(payload);
+      console.log(`sending paylod: ${JSON.stringify(payload)}`)
     }
   }
 }
