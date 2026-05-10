@@ -61,9 +61,16 @@ export function useSenseiSocket() {
     };
 
     socket.onmessage = (event) => {
-      const message: SenseiMessage = JSON.parse(
-        event.data
-      );
+
+      const message = JSON.parse(event.data);
+
+      
+      // const message: SenseiMessage = JSON.parse(
+      //   event.data
+      // );
+
+      console.log("EVENT:", message.event);
+      console.log("PAYLOAD:", message.payload);
 
       if (message.event === "UI_UPDATE") {
         setLiveFrame(message);
