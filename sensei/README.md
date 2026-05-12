@@ -33,7 +33,7 @@ The output of Sensei is the "Final Intelligence" of the system. While Horus outp
 ## Dev Setup (Mac)
 
 ```
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install
 ```

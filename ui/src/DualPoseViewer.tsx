@@ -1,210 +1,76 @@
 import React, { useEffect, useRef } from "react";
+import { useHorus } from "./hooks/useHorus";
 
-interface Props {
-  message: any;
-}
-
-export default function DualPoseViewer({ message }: Props) {
+export default function DualPoseViewer() {
+  const { repInfo, latestPose } = useHorus();
   const frontRef = useRef<HTMLCanvasElement>(null);
   const sideRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number | null>(null);
+
+  const drawPoints = (ctx: CanvasRenderingContext2D, landmarks: any, color: string) => {
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    
+    if (!landmarks || typeof landmarks !== 'object') return;
+
+    Object.entries(landmarks).forEach(([part, coords]: [string, any]) => {
+      // Coordinates are [x, y] from 0 to 1
+      if (!Array.isArray(coords) || coords.length < 2) return;
+      
+      const [x, y] = coords;
+      const px = x * ctx.canvas.width;
+      const py = y * ctx.canvas.height;
+
+      // Draw the Dot
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(px, py, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label
+      ctx.fillStyle = "white";
+      ctx.font = "10px monospace";
+      ctx.fillText(part.toUpperCase(), px + 8, py - 5);
+    });
+  };
+
+  const loop = () => {
+    const poseData = latestPose.current; // This is the payload.pose object
+    
+    if (poseData) {
+      if (frontRef.current && poseData.front) {
+        drawPoints(frontRef.current.getContext("2d")!, poseData.front, "#00d4ff");
+      }
+      if (sideRef.current && poseData.side) {
+        drawPoints(sideRef.current.getContext("2d")!, poseData.side, "#ff9d00");
+      }
+    }
+    rafRef.current = requestAnimationFrame(loop);
+  };
 
   useEffect(() => {
-    if (!message) return;
-
-    let parsed: any;
-
-    try {
-      parsed =
-        typeof message.data === "string"
-          ? JSON.parse(message.data)
-          : message;
-    } catch (err) {
-      console.error("JSON parse failed:", err);
-      return;
-    }
-
-    // ================================
-    // THIS IS THE REAL DATA SHAPE
-    // ================================
-    const pose = parsed?.payload?.pose?.pose;
-
-    if (!pose) {
-      console.log("NO POSE:", parsed);
-      return;
-    }
-
-    const front = pose.front;
-    const side = pose.side;
-
-    const frontCanvas = frontRef.current;
-    const sideCanvas = sideRef.current;
-
-    if (!frontCanvas || !sideCanvas) return;
-
-    const fctx = frontCanvas.getContext("2d");
-    const sctx = sideCanvas.getContext("2d");
-
-    if (!fctx || !sctx) return;
-
-    // ================================
-    // CLEAR
-    // ================================
-    fctx.clearRect(0, 0, frontCanvas.width, frontCanvas.height);
-    sctx.clearRect(0, 0, sideCanvas.width, sideCanvas.height);
-
-    // ================================
-    // GRID
-    // ================================
-    const drawGrid = (
-      ctx: CanvasRenderingContext2D,
-      canvas: HTMLCanvasElement
-    ) => {
-      ctx.strokeStyle = "#151515";
-
-      for (let x = 0; x < canvas.width; x += 40) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
-        ctx.stroke();
-      }
-
-      for (let y = 0; y < canvas.height; y += 40) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-        ctx.stroke();
-      }
-    };
-
-    drawGrid(fctx, frontCanvas);
-    drawGrid(sctx, sideCanvas);
-
-    // ================================
-    // DRAW
-    // ================================
-    const renderPose = (
-      ctx: CanvasRenderingContext2D,
-      landmarks: Record<string, [number, number]>,
-      color: string,
-      canvas: HTMLCanvasElement
-    ) => {
-      Object.entries(landmarks).forEach(([name, point]) => {
-        if (!Array.isArray(point)) return;
-
-        const [xNorm, yNorm] = point;
-
-        // skip missing points
-        if (xNorm === 0 && yNorm === 0) return;
-
-        const x = xNorm * canvas.width;
-        const y = yNorm * canvas.height;
-
-        // glow
-        ctx.beginPath();
-        ctx.arc(x, y, 10, 0, Math.PI * 2);
-
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.2;
-        ctx.fill();
-
-        // main dot
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, Math.PI * 2);
-
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = color;
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = color;
-
-        ctx.fill();
-
-        ctx.shadowBlur = 0;
-
-        // labels
-        ctx.fillStyle = "#fff";
-        ctx.font = "10px monospace";
-        ctx.fillText(name, x + 8, y - 8);
-      });
-    };
-
-    if (front) {
-      renderPose(
-        fctx,
-        front,
-        "#00d4ff",
-        frontCanvas
-      );
-    }
-
-    if (side) {
-      renderPose(
-        sctx,
-        side,
-        "#ff9d00",
-        sideCanvas
-      );
-    }
-
-  }, [message]);
+    rafRef.current = requestAnimationFrame(loop);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: 24,
-        justifyContent: "center",
-        background: "#000",
-        padding: 20,
-      }}
-    >
-      <div>
-        <div
-          style={{
-            color: "#999",
-            textAlign: "center",
-            marginBottom: 8,
-            fontFamily: "monospace",
-            fontSize: 11,
-          }}
-        >
-          SIDE VIEW
+    <div style={{ background: "#000", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", padding: "20px" }}>
+      <div style={{ color: "#444", marginBottom: "10px", fontFamily: "monospace" }}>HORUS LIVE STREAM</div>
+      
+      {repInfo && (
+        <div style={{ color: "#0f0", fontSize: "24px", marginBottom: "20px", border: "2px solid #0f0", padding: "10px 20px" }}>
+          REP: {repInfo.rep_index} | SCORE: {repInfo.score}%
         </div>
+      )}
 
-        <canvas
-          ref={sideRef}
-          width={320}
-          height={520}
-          style={{
-            background: "#090909",
-            borderRadius: 12,
-            border: "1px solid #222",
-          }}
-        />
-      </div>
-
-      <div>
-        <div
-          style={{
-            color: "#999",
-            textAlign: "center",
-            marginBottom: 8,
-            fontFamily: "monospace",
-            fontSize: 11,
-          }}
-        >
-          FRONT VIEW
+      <div style={{ display: "flex", gap: "20px" }}>
+        <div>
+          <div style={{ color: "#ff9d00", textAlign: "center", fontSize: "12px" }}>SIDE</div>
+          <canvas ref={sideRef} width={400} height={600} style={{ border: "1px solid #333" }} />
         </div>
-
-        <canvas
-          ref={frontRef}
-          width={320}
-          height={520}
-          style={{
-            background: "#090909",
-            borderRadius: 12,
-            border: "1px solid #222",
-          }}
-        />
+        <div>
+          <div style={{ color: "#00d4ff", textAlign: "center", fontSize: "12px" }}>FRONT</div>
+          <canvas ref={frontRef} width={400} height={600} style={{ border: "1px solid #333" }} />
+        </div>
       </div>
     </div>
   );

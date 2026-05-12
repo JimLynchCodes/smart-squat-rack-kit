@@ -2,47 +2,76 @@ import json
 import time
 import zmq
 
-from sensei.config import *
-from sensei.set_tracker import SetTracker
+# Assuming these are defined in your local sensei.config
+# If not, you can replace them with your actual strings/ports
+try:
+    from sensei.config import HORUS_ZMQ_ENDPOINT, SENSEI_ZMQ_ADDR
+except ImportError:
+    HORUS_ZMQ_ENDPOINT = "tcp://127.0.0.1:5555"
+    SENSEI_ZMQ_ADDR = "tcp://127.0.0.1:5556"
 
 # =========================================================
 # THE JUDGE: CONFIGURATION
 # =========================================================
 SCORING_CONFIG = [
     {
-        "name": "Depth",
+        "name": "Squat Depth",
         "weight": 25,
-        "min_zero": 0.35, "min_acc": 0.60, "max_acc": 1.20, "max_zero": 1.50
+        # Measures hip crease relative to knee top. 
+        # 0.0 is parallel; > 0.05 is "breaking parallel" (standard competition depth).
+        "min_zero": -1.0, "min_acc": 0.05, "max_acc": 1.0, "max_zero": 1.0
     },
     {
-        "name": "Valgus (Knee/Ankle)",
-        "weight": 15,
-        "min_zero": 0.60, "min_acc": 0.85, "max_acc": 1.30, "max_zero": 1.60
-    },
-    {
-        "name": "Stance (Foot/Shoulder)",
-        "weight": 10,
-        "min_zero": 0.70, "min_acc": 1.05, "max_acc": 1.45, "max_zero": 1.80
-    },
-    {
-        "name": "Forward Drift (m)",
-        "weight": 15,
-        "min_zero": -0.20, "min_acc": -0.05, "max_acc": 0.15, "max_zero": 0.30
-    },
-    {
-        "name": "Back Consistency (deg)",
-        "weight": 15,
-        "min_zero": -5.0,  "min_acc": 0.0,  "max_acc": 15.0, "max_zero": 30.0
-    },
-    {
-        "name": "Torso Angle (deg)",
+        "name": "Valgus (Stability)",
         "weight": 20,
-        "min_zero": -5.0,  "min_acc": 0.0,  "max_acc": 35.0, "max_zero": 60.0
+        # Ratio of Min Knee Distance / Avg Knee Distance.
+        # Detects if knees cave inward (valgus) under load relative to the rep average.
+        "min_zero": 0.60, "min_acc": 0.85, "max_acc": 1.10, "max_zero": 1.20
+    },
+    {
+        "name": "Stance Width",
+        "weight": 10,
+        # Foot Width / Shoulder Width. 
+        # Ensures a stable base that isn't too narrow or excessively wide for the frame.
+        "min_zero": 0.70, "min_acc": 1.00, "max_acc": 1.50, "max_zero": 1.90
+    },
+    {
+        "name": "Forward Drift",
+        "weight": 15,
+        # Horizontal travel of the shoulders relative to the midfoot/ankle.
+        # Excessive drift indicates the center of mass shifting too far forward.
+        "min_zero": -0.15, "min_acc": -0.05, "max_acc": 0.10, "max_zero": 0.25
+    },
+    {
+        "name": "Back Consistency",
+        "weight": 15,
+        # Difference between max and min torso angle.
+        # High delta indicates a "good morning squat" where hips rise faster than shoulders.
+        "min_zero": 30.0, "min_acc": 15.0, "max_acc": 0.0, "max_zero": -5.0
+    },
+    {
+        "name": "Torso Lean (Avg)",
+        "weight": 15,
+        # Checks that the overall average torso angle is not too steep (fully upright)
+        # or too shallow (folded over) for a standard back squat.
+        "min_zero": 65.0, "min_acc": 45.0, "max_acc": 5.0, "max_zero": -5.0
     }
 ]
 
+# =========================================================
+# SCORING ENGINE
+# =========================================================
 def calculate_trapezoid_score(val, cfg):
     """Computes a 0-100 score based on 4-parameter boundaries."""
+    # Special case: If min_acc > max_acc, we are "descending" 
+    # (lower raw values are better, e.g., Back Consistency delta)
+    if cfg["min_acc"] > cfg["max_acc"]:
+        if val <= cfg["max_acc"]: return 100.0
+        if val >= cfg["min_zero"]: return 0.0
+        # Inverted ramp
+        return ((cfg["min_zero"] - val) / (cfg["min_zero"] - cfg["min_acc"])) * 100.0
+
+    # Standard "Ascending" Ramp (higher values are better until max_acc)
     if cfg["min_acc"] <= val <= cfg["max_acc"]:
         return 100.0
     if val <= cfg["min_zero"] or val >= cfg["max_zero"]:
@@ -54,22 +83,30 @@ def calculate_trapezoid_score(val, cfg):
     return 0.0
 
 def evaluate_rep(metrics):
+    """
+    Takes the raw rep summary from Horus and maps it to the 
+    scoring configuration to produce a final judgment.
+    """
     total_score = 0.0
     scorecard = []
 
-    # Map Config names to Horus JSON keys
-    key_map = {
-        "Depth": "lowest_hip_depth",
-        "Valgus (Knee/Ankle)": "knee_to_ankle_ratio",
-        "Stance (Foot/Shoulder)": "foot_to_shoulder_ratio",
-        "Forward Drift (m)": "max_forward_shoulder_drift",
-        "Back Consistency (deg)": "back_angle_delta",
-        "Torso Angle (deg)": "max_back_angle"
+    # Valgus stability logic: how much did the knees narrow compared to the average?
+    avg_k = metrics.get("avg_knee_distance", 1.0)
+    min_k = metrics.get("min_knee_distance", 1.0)
+    valgus_ratio = min_k / max(0.01, avg_k)
+
+    # Map the metrics from Horus to our Scored Criteria
+    key_map_values = {
+        "Squat Depth": metrics.get("hip_knee_depth_ratio", 0.0),
+        "Valgus (Stability)": valgus_ratio,
+        "Stance Width": metrics.get("foot_to_shoulder_ratio", 0.0),
+        "Forward Drift": metrics.get("max_forward_shoulder_drift", 0.0),
+        "Back Consistency": metrics.get("back_angle_delta", 0.0),
+        "Torso Lean (Avg)": metrics.get("avg_back_angle", 0.0)
     }
 
     for check in SCORING_CONFIG:
-        metric_key = key_map.get(check["name"])
-        val = metrics.get(metric_key, 0.0)
+        val = key_map_values.get(check["name"], 0.0)
         
         perf_pct = calculate_trapezoid_score(val, check)
         weighted_contribution = (perf_pct / 100.0) * check["weight"]
@@ -92,70 +129,46 @@ def run():
     ctx = zmq.Context()
     sub = ctx.socket(zmq.SUB)
     sub.connect(HORUS_ZMQ_ENDPOINT)
-    sub.setsockopt_string(zmq.SUBSCRIBE, "pose.data")
+    # We specifically want the summaries to judge them
     sub.setsockopt_string(zmq.SUBSCRIBE, "rep.summary")
 
     pub = ctx.socket(zmq.PUB)
     pub.bind(SENSEI_ZMQ_ADDR)
 
-    set_tracker = SetTracker()
     rep_count = 0
-    last_verdict = None
 
-    print(f"[sensei] online | Trapezoidal Engine | Debug Mode: ON")
+    print(f"[sensei] online | Scoring Engine: Active | Monitoring Horus...")
 
     try:
         while True:
             topic_bytes, payload = sub.recv_multipart()
-            topic = topic_bytes.decode()
             msg = json.loads(payload.decode())
 
-            if topic == "rep.summary":
-                rep_count += 1
-                
-                # --- DEBUG PRINT: RAW HORUS MESSAGE ---
-                print(f"\n\033[94m[DEBUG] Incoming Horus Summary (Rep #{rep_count}):\033[0m")
-                print(json.dumps(msg, indent=4))
-                print("\033[94m" + "="*50 + "\033[0m")
+            rep_count += 1
+            final_score, scorecard = evaluate_rep(msg)
+            
+            # Construct the final verdict
+            verdict = {
+                "rep_index": rep_count, 
+                "score": final_score, 
+                "scorecard": scorecard, 
+                "metrics": msg, 
+                "ts": time.time()
+            }
 
-                final_score, scorecard = evaluate_rep(msg)
-                
-                verdict = {
-                    "rep_index": rep_count, 
-                    "score": final_score, 
-                    "scorecard": scorecard, 
-                    "metrics": msg, 
-                    "ts": time.time()
-                }
-                last_verdict = verdict
-
-                # TERMINAL LOGGING (Scorecard View)
-                color = "\033[92m" if final_score > 85 else "\033[93m" if final_score > 70 else "\033[91m"
-                print(f"{color}SENSEI JUDGMENT: {final_score}/100{0}\033[0m")
-                print(f"{'-'*85}")
-                print(f"{'CRITERION':<22} | {'RAW':<8} | {'ZERO_M':<8} | {'ACC_M':<8} | {'PERF %':<8} | {'PTS'}")
-                print(f"{'-'*85}")
-                for s in scorecard:
-                    cfg = next(c for c in SCORING_CONFIG if c["name"] == s["name"])
-                    p_color = "\033[91m" if s['performance'] < 50 else ""
-                    print(f"{s['name']:<22} | {s['raw_val']:<8} | {cfg['min_zero']:<8} | {cfg['min_acc']:<8} | {p_color}{s['performance']:>6}% \033[0m | {s['contribution']}/{s['weight']}")
-                print(f"{'-'*85}\n")
-
-                pub.send_multipart([b"rep.summary", json.dumps(verdict).encode()])
-                set_tracker.add_rep(verdict)
-
-            elif topic == "pose.data":
-                # Regular live flow
-                pub.send_multipart([b"ui.live", json.dumps({
-                    "ts": time.time(), 
-                    "pose": msg.get("pose"), 
-                    "rep_count": rep_count, 
-                    "last_rep": last_verdict
-                }).encode()])
+            # Terminal Output for Real-time Feedback
+            color = "\033[92m" if final_score > 85 else "\033[93m" if final_score > 70 else "\033[91m"
+            print(f"\n{color}--- REP #{rep_count} | JUDGMENT: {final_score}/100 --- \033[0m")
+            print(f"{'CRITERION':<20} | {'RAW':<8} | {'SCORE':<8}")
+            print("-" * 40)
+            for s in scorecard:
+                print(f"{s['name']:<20} | {s['raw_val']:<8} | {s['performance']}%")
+            
+            # Publish verdict to the rest of the ecosystem (UI, Logs, etc.)
+            pub.send_multipart([b"rep.summary", json.dumps(verdict).encode()])
 
     except KeyboardInterrupt:
         print("\n[sensei] shutting down...")
-        set_tracker.finalize()
     finally:
         sub.close()
         pub.close()
