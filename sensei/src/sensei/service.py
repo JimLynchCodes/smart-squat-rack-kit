@@ -3,192 +3,135 @@ import time
 import zmq
 
 from sensei.config import *
-from sensei.rep_tracker import RepTracker
 from sensei.set_tracker import SetTracker
 
-
-def safe_clear_rep(tracker: RepTracker):
+# =========================================================
+# SCORING ENGINE (The Heart of Sensei)
+# =========================================================
+def calculate_rep_score(summary):
     """
-    Clears rep state safely even if RepTracker
-    does not implement clear_rep().
+    Evaluates a rep summary and returns a score (1-100) and specific feedback.
     """
+    score = 100
+    deductions = []
 
-    # Preferred explicit API
-    if hasattr(tracker, "clear_rep"):
-        tracker.clear_rep()
-        return
+    # 1. Depth Check (The most important factor)
+    # Target depth varies by calibration, but higher Y = deeper.
+    depth = summary.get("lowest_hip_depth", 0)
+    if depth < 0.45:
+        penalty = 40
+        score -= penalty
+        deductions.append(f"Depth too shallow (-{penalty} pts)")
+    elif depth < 0.55:
+        penalty = 15
+        score -= penalty
+        deductions.append(f"Borderline depth (-{penalty} pts)")
 
-    # Common alternative names
-    for method_name in [
-        "reset",
-        "reset_rep",
-        "clear",
-        "new_rep"
-    ]:
-        if hasattr(tracker, method_name):
-            getattr(tracker, method_name)()
-            return
+    # 2. Back Angle / Torso Rigidity
+    # Excessive lean (high angle) indicates core collapse or quad weakness.
+    max_back = summary.get("max_back_angle", 0)
+    if max_back > 50:
+        penalty = 30
+        score -= penalty
+        deductions.append(f"Excessive forward lean (-{penalty} pts)")
+    elif max_back > 35:
+        penalty = 10
+        score -= penalty
+        deductions.append(f"Minor torso lean (-{penalty} pts)")
 
-    # Last-resort fallback:
-    # reinitialize tracker in-place
-    print("[sensei] warning: no clear/reset method found, reinitializing tracker")
+    # 3. Consistency (Avg vs Max Angle)
+    # A large gap suggests a "good morning" squat (hips rising too fast).
+    avg_back = summary.get("avg_back_angle", 0)
+    if (max_back - avg_back) > 15:
+        penalty = 10
+        score -= penalty
+        deductions.append(f"Hips rising too fast / Good Morning squat (-{penalty} pts)")
 
-    tracker.__dict__.clear()
-    tracker.__dict__.update(RepTracker().__dict__)
+    return max(1, score), deductions
 
 
+# =========================================================
+# MAIN SERVICE
+# =========================================================
 def run():
-
     ctx = zmq.Context()
 
-    # =====================================
-    # SUBSCRIBE TO HORUS POSE STREAM
-    # =====================================
+    # SUBSCRIBE TO HORUS
     sub = ctx.socket(zmq.SUB)
     sub.connect(HORUS_ZMQ_ENDPOINT)
     sub.setsockopt_string(zmq.SUBSCRIBE, "pose.data")
+    sub.setsockopt_string(zmq.SUBSCRIBE, "rep.summary")
 
-    # =====================================
     # PUBLISH EVENTS/UI
-    # =====================================
     pub = ctx.socket(zmq.PUB)
     pub.bind(SENSEI_ZMQ_ADDR)
 
-    # =====================================
-    # TRACKERS
-    # =====================================
-    tracker = RepTracker()
     set_tracker = SetTracker()
-
     rep_count = 0
     last_rep_summary = None
 
-    print("[sensei] online | listening...")
+    print(f"[sensei] online | Scoring Engine active | Target: {SENSEI_ZMQ_ADDR}")
 
     try:
-
         while True:
-
-            # =====================================
-            # RECEIVE POSE DATA
-            # =====================================
-            topic, payload = sub.recv_multipart()
-
+            topic_bytes, payload = sub.recv_multipart()
+            topic = topic_bytes.decode()
+            
             try:
                 msg = json.loads(payload.decode())
-
             except Exception as e:
-                print(f"[sensei] invalid payload: {e}")
+                print(f"[sensei] decoding error: {e}")
                 continue
 
-            # =====================================
-            # UPDATE REP TRACKER
-            # =====================================
-            try:
-                tracker.update(msg)
+            # -----------------------------------------------------
+            # CASE: REP COMPLETE (SCORING PHASE)
+            # -----------------------------------------------------
+            if topic == "rep.summary":
+                rep_count += 1
+                
+                # RUN THE JUDGE
+                score, faults = calculate_rep_score(msg)
+                
+                # Construct the final verdict
+                verdict = {
+                    "rep_index": rep_count,
+                    "score": score,
+                    "faults": faults,
+                    "metrics": msg, # Includes frame IDs for key moments
+                    "ts": time.time()
+                }
+                last_rep_summary = verdict
 
-            except Exception as e:
-                print(f"[sensei] tracker.update() failed: {e}")
+                # LOGGING (Beautifully formatted for the terminal)
+                color = "\033[92m" if score > 80 else "\033[93m" if score > 60 else "\033[91m"
+                reset = "\033[0m"
+
+                print(f"\n{color}REP #{rep_count} COMPLETE | SCORE: {score}/100{reset}")
+                print(f"  > Depth: {msg.get('lowest_hip_depth'):.4f}")
+                print(f"  > Max Back Angle: {msg.get('max_back_angle'):.1f}°")
+                if faults:
+                    for f in faults:
+                        print(f"  [!] {f}")
+                else:
+                    print("  [✓] Perfect execution.")
+                print("-" * 40)
+
+                # Broadcast to UI
+                pub.send_multipart([b"rep.summary", json.dumps(verdict).encode()])
+                set_tracker.add_rep(verdict)
                 continue
 
-            # =====================================
-            # REP COMPLETED
-            # =====================================
-            try:
-
-                if tracker.consume_rep_finished():
-
-                    rep_count += 1
-
-                    # -----------------------------
-                    # GET SUMMARY SAFELY
-                    # -----------------------------
-                    try:
-                        summary = tracker.get_summary() or {}
-
-                    except Exception as e:
-                        print(f"[sensei] get_summary failed: {e}")
-                        summary = {}
-
-                    last_rep_summary = summary
-
-                    # -----------------------------
-                    # SCORE
-                    # -----------------------------
-                    score = getattr(tracker, "last_score", 0)
-
-                    # -----------------------------
-                    # READABLE METRICS
-                    # -----------------------------
-                    back_angle = summary.get(
-                        "back_angle_average",
-                        "N/A"
-                    )
-
-                    depth = summary.get(
-                        "depth",
-                        "N/A"
-                    )
-
-                    tempo = summary.get(
-                        "tempo",
-                        "N/A"
-                    )
-
-                    # -----------------------------
-                    # CONSOLE LOGGING
-                    # -----------------------------
-                    print("\n[sensei] =====================")
-                    print(f"[sensei] REP #{rep_count} COMPLETE")
-                    print(f"[sensei] Back Angle Avg: {back_angle}")
-                    print(f"[sensei] Depth: {depth}")
-                    print(f"[sensei] Tempo: {tempo}")
-                    print(f"[sensei] Score: {score}/100")
-                    print("[sensei] =====================\n")
-
-                    # -----------------------------
-                    # PUBLISH REP SUMMARY EVENT
-                    # -----------------------------
-                    event_payload = {
-                        "event": "REP_COMPLETE",
-                        "rep_index": rep_count,
-                        "score": score,
-                        "data": summary,
-                        "ts": time.time()
-                    }
-
-                    pub.send_multipart([
-                        b"rep.summary",
-                        json.dumps(event_payload).encode()
-                    ])
-
-                    # -----------------------------
-                    # ADD TO SET TRACKER
-                    # -----------------------------
-                    try:
-                        set_tracker.add_rep(summary)
-
-                    except Exception as e:
-                        print(f"[sensei] set_tracker.add_rep failed: {e}")
-
-                    # -----------------------------
-                    # CLEAR CURRENT REP STATE
-                    # -----------------------------
-                    safe_clear_rep(tracker)
-
-            except Exception as e:
-                print(f"[sensei] rep completion handling failed: {e}")
-
-            # =====================================
-            # LIVE UI STREAM
-            # =====================================
-            try:
-
+            # -----------------------------------------------------
+            # CASE: LIVE UI PASSTHROUGH
+            # -----------------------------------------------------
+            if topic == "pose.data":
                 live_payload = {
                     "ts": time.time(),
-                    "pose": msg,
+                    "pose": msg.get("pose"),
+                    "metrics": msg.get("instant_metrics"),
+                    "bar": msg.get("bar"),
                     "rep_count": rep_count,
-                    "last_rep_summary": last_rep_summary
+                    "last_rep_summary": last_rep_summary # Keep last score visible on UI
                 }
 
                 pub.send_multipart([
@@ -196,27 +139,13 @@ def run():
                     json.dumps(live_payload).encode()
                 ])
 
-            except Exception as e:
-                print(f"[sensei] ui.live publish failed: {e}")
-
     except KeyboardInterrupt:
-
         print("\n[sensei] shutting down...")
-
-        try:
-            set_tracker.finalize()
-
-        except Exception as e:
-            print(f"[sensei] set finalize failed: {e}")
-
+        set_tracker.finalize()
     finally:
-
         sub.close()
         pub.close()
         ctx.term()
-
-        print("[sensei] offline")
-
 
 if __name__ == "__main__":
     run()

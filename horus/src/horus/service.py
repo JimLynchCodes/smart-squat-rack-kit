@@ -93,11 +93,15 @@ def run():
                 time.sleep(0.01)
                 continue
 
-            pose, phase, metrics, bar = pipeline.process(
-                front_img,
-                side_img
+            # NOW PASSING frame_id INTO THE PIPELINE
+            # AND UNPACKING ALL 5 RETURN VALUES
+            pose, phase, metrics, bar, rep_summary = pipeline.process(
+                front_img, 
+                side_img,
+                frame_id=frame_id
             )
 
+            # LIVE DATA PAYLOAD
             payload = {
                 "frame_id": frame_id,
                 "phase": phase,
@@ -107,10 +111,16 @@ def run():
                 "ts": time.time(),
             }
 
-            print(f"[horus] frame {frame_id} | slot {slot}")
-            print(json.dumps(payload, indent=2, sort_keys=False), flush=True)
-
+            # 1. PUBLISH LIVE STREAM
             pub.publish("pose.data", payload)
+
+            # 2. PUBLISH REP SUMMARY ON COMPLETION
+            if rep_summary:
+                print(f"[horus] REP COMPLETED | ID: {frame_id}")
+                pub.publish("rep.summary", rep_summary)
+
+            # Log current frame status
+            print(f"[horus] frame {frame_id} | slot {slot} | repping: {pipeline.is_repping}")
 
             time.sleep(0.01)
 
