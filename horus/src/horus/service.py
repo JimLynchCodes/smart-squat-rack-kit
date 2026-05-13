@@ -143,6 +143,7 @@ def run():
 
             # 1. PUBLISH LIVE STREAM
             pub.publish("pose.data", payload)
+            print(f"publishing pose.data {payload}")
 
             # 2. PUBLISH REP SUMMARY ON COMPLETION
             if rep_summary:

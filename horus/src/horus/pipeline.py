@@ -92,16 +92,19 @@ class SquatPipeline:
         shoulder_width = 0.0
 
         if self.is_valid(pts.get("left_shoulder"), pts.get("right_shoulder")):
-            shoulder_width = self.dist_x(pts["left_shoulder"], pts["right_shoulder"])
+            shoulder_width = self.dist_x(
+                pts["left_shoulder"], pts["right_shoulder"])
 
         shoulder_width = max(0.01, shoulder_width)
 
         if self.is_valid(pts.get("left_shoulder"), pts.get("left_elbow")):
-            flare = (pts["left_elbow"][0] - pts["left_shoulder"][0]) / shoulder_width
+            flare = (pts["left_elbow"][0] -
+                     pts["left_shoulder"][0]) / shoulder_width
             candidates.append(flare)
 
         if self.is_valid(pts.get("right_shoulder"), pts.get("right_elbow")):
-            flare = (pts["right_elbow"][0] - pts["right_shoulder"][0]) / shoulder_width
+            flare = (pts["right_elbow"][0] -
+                     pts["right_shoulder"][0]) / shoulder_width
             candidates.append(flare)
 
         if not candidates:
@@ -145,8 +148,10 @@ class SquatPipeline:
         self.id_min_elbow_flare = None
 
     def process(self, front_img, side_img, frame_id=None):
-        side_res = self.model(side_img, verbose=False)[0] if side_img is not None else None
-        front_res = self.model(front_img, verbose=False)[0] if front_img is not None else None
+        side_res = self.model(side_img, verbose=False)[
+            0] if side_img is not None else None
+        front_res = self.model(front_img, verbose=False)[
+            0] if front_img is not None else None
 
         side_pts = self.extract_keypoints(side_res) if side_res else {}
         front_pts = self.extract_keypoints(front_res) if front_res else {}
@@ -169,19 +174,24 @@ class SquatPipeline:
         hip_knee_ratio = -1.0
 
         if self.is_valid(side_pts.get("left_shoulder"), side_pts.get("right_shoulder")):
-            sh_mid = self.midpoint(side_pts["left_shoulder"], side_pts["right_shoulder"])
+            sh_mid = self.midpoint(
+                side_pts["left_shoulder"], side_pts["right_shoulder"])
 
         if self.is_valid(side_pts.get("left_hip"), side_pts.get("right_hip")):
-            hip_mid = self.midpoint(side_pts["left_hip"], side_pts["right_hip"])
+            hip_mid = self.midpoint(
+                side_pts["left_hip"], side_pts["right_hip"])
 
         if self.is_valid(side_pts.get("left_knee"), side_pts.get("right_knee")):
-            knee_mid = self.midpoint(side_pts["left_knee"], side_pts["right_knee"])
+            knee_mid = self.midpoint(
+                side_pts["left_knee"], side_pts["right_knee"])
 
         if self.is_valid(side_pts.get("left_ankle"), side_pts.get("right_ankle")):
-            ankle_mid = self.midpoint(side_pts["left_ankle"], side_pts["right_ankle"])
+            ankle_mid = self.midpoint(
+                side_pts["left_ankle"], side_pts["right_ankle"])
 
         if sh_mid != [0.0, 0.0] and hip_mid != [0.0, 0.0]:
-            cur_angle = self.angle(np.array(sh_mid) - np.array(hip_mid), [0, -1])
+            cur_angle = self.angle(
+                np.array(sh_mid) - np.array(hip_mid), [0, -1])
 
         if hip_mid != [0.0, 0.0] and knee_mid != [0.0, 0.0] and ankle_mid != [0.0, 0.0]:
             denom = max(0.01, ankle_mid[1] - knee_mid[1])
@@ -197,13 +207,16 @@ class SquatPipeline:
         s_dist_front = 0.0
 
         if self.is_valid(front_pts.get("left_knee"), front_pts.get("right_knee")):
-            k_dist = self.dist_x(front_pts["left_knee"], front_pts["right_knee"])
+            k_dist = self.dist_x(
+                front_pts["left_knee"], front_pts["right_knee"])
 
         if self.is_valid(front_pts.get("left_ankle"), front_pts.get("right_ankle")):
-            a_dist = self.dist_x(front_pts["left_ankle"], front_pts["right_ankle"])
+            a_dist = self.dist_x(
+                front_pts["left_ankle"], front_pts["right_ankle"])
 
         if self.is_valid(front_pts.get("left_shoulder"), front_pts.get("right_shoulder")):
-            s_dist_front = self.dist_x(front_pts["left_shoulder"], front_pts["right_shoulder"])
+            s_dist_front = self.dist_x(
+                front_pts["left_shoulder"], front_pts["right_shoulder"])
 
         # ---------------------------
         # REP TRACKING
@@ -292,6 +305,19 @@ class SquatPipeline:
                     }
                     self.reset_rep_metrics()
                     self.is_repping = False
+
+            metrics["side"] = {
+                "back_angle": to_float(round(cur_angle, 2)),
+                "hip_knee_ratio": to_float(round(hip_knee_ratio, 4)),
+                "elbow_flare": to_float(round(elbow_flare, 4)),
+                "is_repping": self.is_repping
+            }
+
+            metrics["front"] = {
+                "knee_distance": to_float(round(k_dist, 4)),
+                "ankle_distance": to_float(round(a_dist, 4)),
+                "shoulder_width": to_float(round(s_dist_front, 4))
+            }
 
         return (
             {

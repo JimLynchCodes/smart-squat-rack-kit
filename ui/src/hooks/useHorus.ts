@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 
 export function useHorus() {
   const [repInfo, setRepInfo] = useState<any>(null);
+  // This ref now holds the full payload (pose, metrics, frame_id, etc.)
   const latestPose = useRef<any>(null);
 
   useEffect(() => {
@@ -12,9 +13,8 @@ export function useHorus() {
         const msg = JSON.parse(event.data);
 
         if (msg.event === "pose.data") {
-          // FIX: Based on Screenshot 2026-05-12 at 5.56.49 PM.png
-          // The structure is payload -> pose -> {side, front}
-          latestPose.current = msg.payload.pose; 
+          // Store the WHOLE payload so we don't lose metrics or metadata
+          latestPose.current = msg.payload; 
         } 
         else if (msg.event === "rep.summary") {
           setRepInfo(msg.payload);

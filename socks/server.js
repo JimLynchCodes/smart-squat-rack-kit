@@ -65,7 +65,7 @@ async function runBridge() {
       if (topicStr === "rep.summary") {
         console.log(`🏆 [REP] Forwarded summary to ${activeCount} clients`);
       } else if (payload.frame_id && payload.frame_id % 90 === 0) {
-        console.log(`📡 [POSE] Streaming frame ${payload.frame_id}...`);
+        console.log(`📡 [POSE] Streaming frame ${payload.frame_id}...`, JSON.stringify(payload));
       }
 
     } catch (err) {
