@@ -13,22 +13,52 @@ from horus.shared_ring import SharedIndex
 # =========================================================
 # LAZY SHARED FRAME (FIXES YOUR CRASH)
 # =========================================================
+# =========================================================
+# DYNAMIC LAZY SHARED FRAME
+# =========================================================
 class LazyFrame:
-    def __init__(self, name, shape):
+    def __init__(self, name, target_shape):
         self.name = name
-        self.shape = shape
+        # We keep target_shape as a fallback or to verify aspect ratio
+        self.target_shape = target_shape 
         self.shm = None
         self.buf = None
+        self.actual_shape = None
+
+    def _derive_shape(self, buffer_size):
+        """
+        Derives H, W, C from buffer size. 
+        Assumes 3 channels (uint8).
+        """
+        total_pixels = buffer_size // 3
+        
+        # If the buffer matches our config's total size, use config shape
+        if total_pixels == (self.target_shape[0] * self.target_shape[1]):
+            return self.target_shape
+        
+        # Fallback: If hardware changed (e.g. 1080p -> 720p), 
+        # we calculate based on the buffer. 
+        # This assumes a standard 16:9 or 4:3 ratio based on target_shape.
+        aspect_ratio = self.target_shape[1] / self.target_shape[0]
+        h = int(np.sqrt(total_pixels / aspect_ratio))
+        w = int(h * aspect_ratio)
+        return (h, w, 3)
 
     def read(self):
         try:
             if self.shm is None:
                 self.shm = shared_memory.SharedMemory(name=self.name)
-                self.buf = np.ndarray(self.shape, dtype=np.uint8, buffer=self.shm.buf)
+                # Calculate what the shape ACTUALLY is based on the OS buffer
+                self.actual_shape = self._derive_shape(len(self.shm.buf))
+                self.buf = np.ndarray(self.actual_shape, dtype=np.uint8, buffer=self.shm.buf)
+                print(f"[horus] attached {self.name} | Detected Shape: {self.actual_shape}")
 
             return self.buf.copy()
 
         except FileNotFoundError:
+            return None
+        except Exception as e:
+            print(f"[horus] Error reading {self.name}: {e}")
             return None
 
 

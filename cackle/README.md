@@ -45,3 +45,21 @@ Publishes to ZeroMQ but also prints to the console some output like this:
 ## async disk archival
 
 RAM → completed rep → mp4 encoder thread → SSD
+
+
+Pro-Tip: Identifying Indices
+If you aren't sure which camera is which, you can run a quick check in your terminal:
+
+```Bash
+ffmpeg -f avfoundation -list_devices true -i ""
+```
+
+install if needed:
+```
+brew install ffmpeg
+```
+
+check resolution / frame rate
+```
+ffmpeg -f avfoundation -i "0" -hide_banner
+```
