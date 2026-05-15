@@ -63,7 +63,6 @@ export function useSenseiSocket() {
     socket.onmessage = (event) => {
 
       const message = JSON.parse(event.data);
-
       
       // const message: SenseiMessage = JSON.parse(
       //   event.data

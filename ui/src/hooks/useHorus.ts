@@ -12,6 +12,9 @@ export function useHorus() {
       try {
         const msg = JSON.parse(event.data);
 
+        console.log("got a message")
+        console.log(msg)
+
         if (msg.event === "pose.data") {
           // Store the WHOLE payload so we don't lose metrics or metadata
           latestPose.current = msg.payload; 

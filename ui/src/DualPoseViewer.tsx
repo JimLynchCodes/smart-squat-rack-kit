@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useHorus } from "./hooks/useHorus";
 import { DebugPanel } from "./DebugPanel";
+import { useSenseiSocket } from "./hooks/useSenseiSocket";
 
 export default function DualPoseViewer() {
     const { repInfo, latestPose } = useHorus();
+    // useSenseiSocket();
     // Holds the full payload for reactive UI components like DebugPanel
     const [fullPayload, setFullPayload] = useState<any>(null);
 
@@ -117,7 +119,7 @@ export default function DualPoseViewer() {
             <DebugPanel data={fullPayload} />
             
             <br/>
-            
+
             {repInfo && (
                 <div style={{ color: "#0f0", fontSize: "24px", marginBottom: "20px", border: "2px solid #0f0", padding: "10px 20px" }}>
                     REP: {repInfo.rep_index} | SCORE: {repInfo.score}%
