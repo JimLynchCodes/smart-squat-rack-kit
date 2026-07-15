@@ -161,7 +161,7 @@ Instead:
 
 That’s the right system.
 
-Best v1 architecture
+## Best v1 architecture
 
 Option A (best): mini PC hub
 
